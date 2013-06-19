@@ -85,7 +85,10 @@ namespace sys_close {
 namespace android_audio_legacy
 {
 
-ALSADevice::ALSADevice() {
+//XIAOMI_START
+ALSADevice::ALSADevice(AudioHardwareALSA* parent) {
+//ALSADevice::ALSADevice() {
+//XIAOMI_END
 #ifdef USES_FLUENCE_INCALL
     mDevSettingsFlag = TTY_OFF | DMIC_FLAG;
 #else
@@ -131,6 +134,10 @@ ALSADevice::ALSADevice() {
     mA2220Fd = -1;
     mA2220Mode = A2220_PATH_INCALL_RECEIVER_NSOFF;
 #endif
+//XIAOMI_START
+    mPrevDevice = 0;
+    mParent = parent;
+//XIAOMI_END
 
     ALOGD("ALSA module opened");
 }
@@ -539,6 +546,22 @@ void ALSADevice::switchDevice(alsa_handle_t *handle, uint32_t devices, uint32_t 
     ALOGV("%s: device %#x mode:%d", __FUNCTION__, devices, mode);
 
     if ((mode == AUDIO_MODE_IN_CALL)  || (mode == AUDIO_MODE_IN_COMMUNICATION)) {
+//XIAOMI_START
+        if (mPrevDevice != 0) {
+            ALOGV("devices & AudioSystem::DEVICE_OUT_ALL:0x%x", devices & AudioSystem::DEVICE_OUT_ALL);
+            if ((devices & AudioSystem::DEVICE_OUT_ALL) == 0) {
+                ALOGE("Should keep previous devices");
+                devices = devices | ((devices & AudioSystem::DEVICE_IN_ALL) | (mPrevDevice & AudioSystem::DEVICE_OUT_ALL));
+                ALOGE("device:%x, 0", devices);
+                if ((devices & AudioSystem::DEVICE_OUT_ALL) == 0) {
+                    ALOGE("set default RX path to earpiece");
+                    devices = devices | (AudioSystem::DEVICE_OUT_EARPIECE);
+                }
+                ALOGE("device:%x, 0-1", devices);
+                goto ROUTE;
+            }
+        }
+//XIAOMI_END
         if ((devices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) ||
             (devices & AudioSystem::DEVICE_IN_WIRED_HEADSET)) {
             devices = devices | (AudioSystem::DEVICE_OUT_WIRED_HEADSET |
@@ -575,6 +598,9 @@ void ALSADevice::switchDevice(alsa_handle_t *handle, uint32_t devices, uint32_t 
                        AudioSystem::DEVICE_OUT_SPEAKER);
         } else if ((devices & AudioSystem::DEVICE_OUT_BLUETOOTH_SCO) ||
                    (devices & AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_HEADSET) ||
+//XIAOMI_START
+                   (devices & AudioSystem::DEVICE_OUT_BLUETOOTH_SCO_CARKIT) ||
+//XIAOMI_END
                    (devices & AudioSystem::DEVICE_IN_BLUETOOTH_SCO_HEADSET)) {
             devices = devices | (AudioSystem::DEVICE_IN_BLUETOOTH_SCO_HEADSET |
                       AudioSystem::DEVICE_OUT_BLUETOOTH_SCO);
@@ -609,6 +635,8 @@ void ALSADevice::switchDevice(alsa_handle_t *handle, uint32_t devices, uint32_t 
             ALOGE("SwitchDevice:: Invalid A2DP Combination for mode %d", mode);
         }
     }
+ROUTE:
+    mPrevDevice  = devices;
 #ifdef QCOM_SSR_ENABLED
     if ((devices & AudioSystem::DEVICE_IN_BUILTIN_MIC) && ( 6 == handle->channels)) {
         if (!strncmp(handle->useCase, SND_USE_CASE_VERB_HIFI_REC, strlen(SND_USE_CASE_VERB_HIFI_REC))
@@ -633,6 +661,13 @@ void ALSADevice::switchDevice(alsa_handle_t *handle, uint32_t devices, uint32_t 
              (mode == AUDIO_MODE_IN_COMMUNICATION)))
             inCallDevSwitch = true;
     }
+//XIAOMI_START
+    ALOGV("rxDevice:%s, mCurRxUCMDevice:%s, mode:%d", rxDevice, mCurRxUCMDevice, mode);
+    if (((mode == AUDIO_MODE_IN_CALL) ||(mode == AUDIO_MODE_IN_COMMUNICATION)) &&
+        (strncmp(rxDevice, mCurRxUCMDevice, MAX_STR_LEN))) {
+        mParent->enableAudienceloopback(0);
+    }
+//XIAOMI_END
 
 #ifdef QCOM_CSDCLIENT_ENABLED
     if (isPlatformFusion3() && (inCallDevSwitch == true)) {
@@ -678,6 +713,9 @@ void ALSADevice::switchDevice(alsa_handle_t *handle, uint32_t devices, uint32_t 
                     }
                 }
             }
+//XIAOMI_START
+            mParent->enableAudienceloopback(0);
+//XIAOMI_END
             snd_use_case_set(handle->ucMgr, "_disdev", mCurRxUCMDevice);
         }
     }
@@ -805,6 +843,9 @@ void ALSADevice::switchDevice(alsa_handle_t *handle, uint32_t devices, uint32_t 
     }
 #endif
 #ifdef QCOM_CSDCLIENT_ENABLED
+//XIAOMI_START
+    mParent->doRouting_Audience_Codec(mode, devices, true);
+//XIAOMI_END
     if (isPlatformFusion3() && (inCallDevSwitch == true)) {
 
 #ifndef NEW_CSDCLIENT
@@ -861,6 +902,9 @@ void ALSADevice::switchDevice(alsa_handle_t *handle, uint32_t devices, uint32_t 
                 ALOGE("csd_client_disable_device failed, error %d", err);
             }
         }
+//XIAOMI_START
+        mParent->enableAudienceloopback(1);
+//XIAOMI_END
     }
 #endif
 #endif
@@ -1664,6 +1708,14 @@ void ALSADevice::disableDevice(alsa_handle_t *handle)
         ALOGV("usecase_type is %d\n", usecase_type);
         if (!(usecase_type & USECASE_TYPE_TX) && (strncmp(mCurTxUCMDevice, "None", 4)))
             snd_use_case_set(handle->ucMgr, "_disdev", mCurTxUCMDevice);
+//XIAOMI_START
+            int bDuringIncall = mParent->getCallState();
+            ALOGE("disableDevice --> close the Audience, isDuringCall:%d", bDuringIncall);
+            if ((bDuringIncall == false) && (mCallMode == AUDIO_MODE_NORMAL)) {
+                mParent->enableAudienceloopback(0);
+                mParent->doRouting_Audience_Codec( 0, 0, false);
+            }
+//XIAOMI_END
         if (!(usecase_type & USECASE_TYPE_RX) && (strncmp(mCurRxUCMDevice, "None", 4)))
             snd_use_case_set(handle->ucMgr, "_disdev", mCurRxUCMDevice);
     } else {
@@ -1694,7 +1746,10 @@ char *ALSADevice::getUCMDeviceFromAcdbId(int acdb_id)
 char* ALSADevice::getUCMDevice(uint32_t devices, int input, char *rxDevice)
 {
     char value[PROPERTY_VALUE_MAX];
-
+//XIAOMI_START
+    ALOGV("CallMode = %d, CallActiveState:%d", mCallMode, mParent->getCallState());
+    int bDuringIncall = mParent->getCallState();
+//XIAOMI_END
     if (!input) {
         ALOGV("getUCMDevice for output device: devices:%x is input device:%d",devices,input);
         if (!(mDevSettingsFlag & TTY_OFF) &&
@@ -1796,24 +1851,16 @@ char* ALSADevice::getUCMDevice(uint32_t devices, int input, char *rxDevice)
         } else if (devices & AudioSystem::DEVICE_OUT_EARPIECE) {
             if (mCallMode == AUDIO_MODE_IN_CALL ||
                 mCallMode == AUDIO_MODE_IN_COMMUNICATION) {
-                if (shouldUseHandsetAnc(mDevSettingsFlag, mInChannels)) {
-                    return strdup(SND_USE_CASE_DEV_ANC_HANDSET); /* ANC Handset RX */
-                } else {
-                    property_get("persist.audio.voc_ep.xgain", value, "");
-                    return strdup(strcmp(value, "1") == 0 ?
-                                SND_USE_CASE_DEV_VOC_EARPIECE_XGAIN :
-                                SND_USE_CASE_DEV_VOC_EARPIECE); /* Voice HANDSET RX */
-                }
+                return strdup(SND_USE_CASE_DEV_VOC_EARPIECE); /* Voice HANDSET RX */
+
             } else {
                 return strdup(SND_USE_CASE_DEV_EARPIECE); /* HANDSET RX */
             }
         } else if (devices & AudioSystem::DEVICE_OUT_SPEAKER) {
-#ifdef SEPERATED_VOICE_SPEAKER
             if (mCallMode == AUDIO_MODE_IN_CALL ||
                 mCallMode == AUDIO_MODE_IN_COMMUNICATION) {
                 return strdup(SND_USE_CASE_DEV_VOC_SPEAKER); /* Voice SPEAKER RX */
             }
-#endif
             return strdup(SND_USE_CASE_DEV_SPEAKER); /* SPEAKER RX */
         } else if ((devices & AudioSystem::DEVICE_OUT_WIRED_HEADSET) ||
                    (devices & AudioSystem::DEVICE_OUT_WIRED_HEADPHONE)) {

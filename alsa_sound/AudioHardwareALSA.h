@@ -46,6 +46,65 @@ extern "C" {
 
 #include <hardware/hardware.h>
 
+//XIAOMI_START
+#include <sys/ioctl.h>
+#include <fcntl.h>   /* File control definitions */
+#include <errno.h>   /* Error number definitions */
+#include <termios.h> /* POSIX terminal control definitions */
+
+#define A200_msg_Sync_Polling 0x80000000
+
+#define PRESET_BASE 0x80310000
+#define ES310_PRESET_HANDSET_INCALL_NB		    (PRESET_BASE)
+#define ES310_PRESET_HEADSET_INCALL_NB 	           (PRESET_BASE + 1)
+#define ES310_PRESET_HANDSFREE_REC_NB		    (PRESET_BASE + 2)
+#define ES310_PRESET_HANDSFREE_INCALL_NB		    (PRESET_BASE + 3)
+#define ES310_PRESET_HANDSET_INCALL_WB	           (PRESET_BASE + 4)
+#define ES310_PRESET_HEADSET_INCALL_WB		    (PRESET_BASE + 5)
+#define ES310_PRESET_AUDIOPATH_DISABLE               (PRESET_BASE + 6)
+#define ES310_PRESET_HANDSFREE_INCALL_WB	    (PRESET_BASE + 7)
+#define ES310_PRESET_HANDSET_VOIP_WB		           (PRESET_BASE + 8)
+#define ES310_PRESET_HEADSET_VOIP_WB                   (PRESET_BASE + 9)
+#define ES310_PRESET_HANDSFREE_REC_WB                 (PRESET_BASE + 10)
+#define ES310_PRESET_HANDSFREE_VOIP_WB               (PRESET_BASE + 11)
+#define ES310_PRESET_VOICE_RECOGNIZTION_WB       (PRESET_BASE + 12)
+#define ES310_PRESET_HEADSET_REC_WB                     (PRESET_BASE + 13)
+#define ES310_PRESET_ANALOG_BYPASS	                   (PRESET_BASE + 14)
+#define ES310_PRESET_HEADSET_MIC_ANALOG_BYPASS    (PRESET_BASE + 15)
+
+struct voiceproc_img
+{
+	unsigned char *buf;
+	unsigned img_size;
+};
+
+#define ES310_IOCTL_MAGIC ';'
+#define ES310_BOOTUP_INIT _IOW(ES310_IOCTL_MAGIC, 1, struct es310img *)
+#define ES310_SET_CONFIG _IOW(ES310_IOCTL_MAGIC, 2, unsigned int *)
+#define ES310_SET_PARAM _IOW(ES310_IOCTL_MAGIC, 4, struct ES310_config_data *)
+#define ES310_SYNC_CMD _IO(ES310_IOCTL_MAGIC, 9)
+#define ES310_SLEEP_CMD _IO(ES310_IOCTL_MAGIC, 11)
+#define ES310_RESET_CMD _IO(ES310_IOCTL_MAGIC, 12)
+#define ES310_WAKEUP_CMD _IO(ES310_IOCTL_MAGIC, 13)
+#define ES310_MDELAY _IOW(ES310_IOCTL_MAGIC, 14, unsigned int)
+#define ES310_READ_FAIL_COUNT _IOR(ES310_IOCTL_MAGIC, 15, unsigned int *)
+#define ES310_READ_SYNC_DONE _IOR(ES310_IOCTL_MAGIC, 16, bool *)
+#define ES310_READ_DATA _IOR(ES310_IOCTL_MAGIC, 17, unsigned long *)
+#define ES310_WRITE_MSG _IOW(ES310_IOCTL_MAGIC, 18, unsigned long)
+#define ES310_SET_PRESET _IOW(ES310_IOCTL_MAGIC, 19, unsigned long)
+
+enum ES310_PathID {
+        ES310_PATH_SUSPEND = 0,
+        ES310_PATH_HANDSET,
+        ES310_PATH_HEADSET,
+        ES310_PATH_HANDSFREE,
+        ES310_PATH_BACKMIC,
+        ES310_PATH_MAX
+};
+//XIAOMI_END
+
+//#define QCOM_CSDCLIENT_ENABLED
+
 namespace android_audio_legacy
 {
 using android::List;
@@ -93,6 +152,8 @@ class AudioHardwareALSA;
 #define VOIP_SAMPLING_RATE_8K 8000
 #define VOIP_SAMPLING_RATE_16K 16000
 #define VOIP_DEFAULT_CHANNEL_MODE  1
+#define VOIP_BUFFER_SIZE_8K    320
+#define VOIP_BUFFER_SIZE_16K   640
 #define VOIP_BUFFER_MAX_SIZE   VOIP_BUFFER_SIZE_16K
 #define VOIP_PLAYBACK_LATENCY      6400
 #define VOIP_RECORD_LATENCY        6400
@@ -111,6 +172,9 @@ class AudioHardwareALSA;
 #define TTY_MODE_KEY        "tty_mode"
 #define BT_SAMPLERATE_KEY   "bt_samplerate"
 #define BTHEADSET_VGS       "bt_headset_vgs"
+//XIAOMI_START
+#define BTHEADSET_NAME    "bt_headset_name"
+//XIAOMI_END
 #define WIDEVOICE_KEY       "wide_voice_enable"
 #define VOIPRATE_KEY        "voip_rate"
 #define FENS_KEY            "fens_enable"
@@ -280,7 +344,9 @@ class ALSADevice
 
 public:
 
-    ALSADevice();
+    int mPrevDevice;
+    ALSADevice(AudioHardwareALSA* parent);
+    //ALSADevice();
     virtual ~ALSADevice();
 //    status_t init(alsa_device_t *module, ALSAHandleList &list);
     status_t open(alsa_handle_t *handle);
@@ -313,8 +379,8 @@ public:
     void     setInChannels(int);
     //TODO:check if this needs to be public
     void     disableDevice(alsa_handle_t *handle);
-    char    *getUCMDeviceFromAcdbId(int acdb_id);
-    status_t getEDIDData(char *hdmiEDIDData);
+    char *getUCMDeviceFromAcdbId(int acdb_id);
+	status_t getEDIDData(char *hdmiEDIDData);
 #ifdef SEPERATED_AUDIO_INPUT
     void     setInput(int);
 #endif
@@ -328,6 +394,10 @@ public:
     int mADSPState;
     bool mSSRComplete;
     int mCurDevice;
+//XIAOMI_START
+    friend class AudioHardwareALSA;
+    AudioHardwareALSA* mParent;
+//XIAOMI_END
 protected:
     friend class AudioHardwareALSA;
 private:
@@ -760,6 +830,9 @@ private:
 
 protected:
     AudioHardwareALSA *     mParent;
+//XIAOMI_START
+    int mSkipFrame;
+//XIAOMI_END
 };
 
 class AudioHardwareALSA : public AudioHardwareBase
@@ -837,6 +910,30 @@ public:
             AudioSystem::audio_in_acoustics acoustics);
     virtual    void        closeInputStream(AudioStreamIn* in);
 
+//XIAOMI_START
+    static void *AudienceThreadWrapper(void *me);
+    void AudienceThreadEntry();
+    pthread_t AudienceThread;
+    pthread_mutex_t mAudienceMutex;
+    pthread_cond_t mAudienceCV;
+    int mAudienceCmd;
+    bool mKillAudienceThread;
+    enum {
+        CMD_AUDIENCE_READY = -1,
+        CMD_AUDIENCE_WAKEUP = 0,
+    };
+    void enableAudienceloopback(int enable);
+    status_t doAudienceCodec_Init(void);
+    status_t doAudienceCodec_DeInit(void);
+    status_t doAudienceCodec_Wakeup(void);
+    status_t doRouting_Audience_Codec(int mode, int device, bool enable);
+    char* getNameByPresetID(int presetID);
+    uint32_t getCurDevice(){ return mCurDevice;};
+    int getCallState(){ return mCSCallActive;};
+    bool    mAudienceCodecInit;
+    Mutex mAudioCodecLock;
+    int mLoopbackState;
+//XIAOMI_END
     status_t    startPlaybackOnExtOut(uint32_t activeUsecase);
     status_t    stopPlaybackOnExtOut(uint32_t activeUsecase);
     bool        suspendPlaybackOnExtOut(uint32_t activeUsecase);
