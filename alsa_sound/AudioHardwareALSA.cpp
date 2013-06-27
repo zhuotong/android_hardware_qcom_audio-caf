@@ -555,7 +555,8 @@ status_t AudioHardwareALSA::setMode(int mode)
             pthread_cond_signal(&mAudienceCV);
         }
 //XIAOMI_END
-        mCallState = CS_ACTIVE;
+        if (mCallState == CS_INACTIVE)
+            mCallState = CS_ACTIVE;
     }else if (mode == AUDIO_MODE_NORMAL) {
         mCallState = 0;
     }
