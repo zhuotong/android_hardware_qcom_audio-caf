@@ -540,6 +540,14 @@ status_t AudioHardwareALSA::setMasterVolume(float volume)
 status_t AudioHardwareALSA::setMode(int mode)
 {
     status_t status = NO_ERROR;
+    ALOGE("mMode:%d, mode:%d", mMode, mode);
+//XIAOMI_START
+    if ((mMode == AUDIO_MODE_RINGTONE) &&
+        (mode == AUDIO_MODE_NORMAL)) {
+        enableAudienceloopback(0);
+        doRouting_Audience_Codec( 0, 0, false);
+    }
+//XIAOMI_END
 
     if (mode != mMode) {
         status = AudioHardwareBase::setMode(mode);
@@ -1158,6 +1166,9 @@ status_t AudioHardwareALSA::doRouting(int device)
              setInChannels(device);
              ALSAHandleList::iterator it = mDeviceList.end();
              it--;
+//XIAOMI_START
+             ALOGD("ALSADevice->route mode:%d, device:0x%x, enable:%d", newMode, device, true);
+//XIAOMI_END
              mALSADevice->route(&(*it), (uint32_t)device, newMode);
         }
     }
@@ -1989,6 +2000,11 @@ static unsigned int dwNewPreset = -1;
 //Call this API after enabling the Audience, Also call this API before disabling the Audience
 void AudioHardwareALSA::enableAudienceloopback(int enable)
 {
+    if (mAudienceCodecInit != 1) {
+        ALOGE("Audience Codec not initialized.\n");
+        return;
+    }
+
     if (mLoopbackState == enable)
         return;
 
