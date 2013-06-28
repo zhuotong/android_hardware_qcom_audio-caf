@@ -84,7 +84,74 @@ namespace sys_close {
 
 namespace android_audio_legacy
 {
+//XIAOMI_START
+void *ALSADevice::csdThreadWrapper(void *me) {
+    static_cast<ALSADevice *>(me)->csdThreadEntry();
+    return NULL;
+}
 
+void ALSADevice::csdThreadEntry() {
+    ALOGV("ALSADevice::csdThreadEntry +");
+    pid_t tid  = gettid();
+    int err;
+    int command_size = 0;
+    androidSetThreadPriority(tid, ANDROID_PRIORITY_URGENT_AUDIO);
+    m_csdCmd = CMD_CSD_READY;
+    while(!m_killcsdThread) {
+        while (!CSDCmdQueue.empty())  {
+            List<CSDCommand>::iterator it = CSDCmdQueue.begin();
+            CSDCommand csdcommand = *it;
+            ALOGE("CSDCommand, cmd:%d, rx:%d, tx:%d, flag:%d",
+                csdcommand.cmd, csdcommand.rx_id, csdcommand.tx_id, csdcommand.devSetFlag);
+            switch (csdcommand.cmd)
+            {
+                case CMD_CSD_START_VOICE:
+                {
+                    ALOGV("ALSADevice::csdThreadEntry, csd_client_start_voice");
+                    err = csd_start_voice();
+                    if (err < 0) {
+                        ALOGE("startVoiceCall: CMD_CSD_START_VOICE error %d\n", err);
+                    }
+                    break;
+                }
+                case CMD_CSD_END_VOICE:
+                {
+                    ALOGV("ALSADevice::csdThreadEntry, csd_client_stop_voice");
+                    err = csd_stop_voice();
+                    if (err < 0) {
+                        ALOGE("s_close: CMD_CSD_END_VOICE error %d\n", err);
+                    }
+                    break;
+                }
+                case CMD_CSD_ENABLE_DEVICE:
+                    ALOGV("ALSADevice::csdThreadEntry, csd_client_enable_device");
+                    err = csd_enable_device(csdcommand.rx_id, csdcommand.tx_id, csdcommand.devSetFlag);
+                    if (err < 0) {
+                        ALOGE("s_close: CMD_CSD_DISABLE_DEVICE error %d\n", err);
+                    }
+                    break;
+                case CMD_CSD_DISABLE_DEVICE:
+                    ALOGV("ALSADevice::csdThreadEntry, csd_client_disable_device");
+                    err = csd_disable_device();
+                    if (err < 0) {
+                        ALOGE("s_close: CMD_CSD_DISABLE_DEVICE error %d\n", err);
+                    }
+                    break;
+                default:
+                    m_csdCmd = CMD_CSD_READY;
+            }
+            CSDCmdQueue.erase(it);
+        }
+        pthread_mutex_lock(&m_csd_mutex);
+        pthread_cond_wait(&m_csd_cv, &m_csd_mutex);
+        pthread_mutex_unlock(&m_csd_mutex);
+        if (CSDCmdQueue.size() != 0)
+            ALOGV("CSD command size:%d", CSDCmdQueue.size());
+        continue;
+    }
+    ALOGV("ALSADevice::csdThreadEntry -");
+}
+//XIAOMI_END
 //XIAOMI_START
 ALSADevice::ALSADevice(AudioHardwareALSA* parent) {
 //ALSADevice::ALSADevice() {
@@ -137,6 +204,12 @@ ALSADevice::ALSADevice(AudioHardwareALSA* parent) {
 //XIAOMI_START
     mPrevDevice = 0;
     mParent = parent;
+    pthread_mutex_init(&m_csd_mutex, NULL);
+    pthread_cond_init (&m_csd_cv, NULL);
+    m_killcsdThread = false;
+    m_csdCmd = CMD_CSD_READY;
+    ALOGV("Creating CSD Thread");
+    pthread_create(&csdThread, NULL, csdThreadWrapper, this);
 //XIAOMI_END
 
     ALOGD("ALSA module opened");
@@ -151,7 +224,12 @@ ALSADevice::~ALSADevice()
         mProxyParams.mCaptureBuffer = NULL;
     }
     mProxyParams.mProxyState = proxy_params::EProxyClosed;
-
+//XIAOMI_START
+    m_killcsdThread = true;
+    pthread_cond_signal(&m_csd_cv);
+    pthread_join(csdThread,NULL);
+    ALOGV("CSD Thread Killed");
+//XIAOMI_END
 }
 
 static bool isPlatformFusion3() {
@@ -1980,11 +2058,11 @@ char* ALSADevice::getUCMDevice(uint32_t devices, int input, char *rxDevice)
                     if (((rxDevice != NULL) &&
                         (!strncmp(rxDevice, SND_USE_CASE_DEV_SPEAKER,
                         (strlen(SND_USE_CASE_DEV_SPEAKER)+1))
-#ifdef SEPERATED_VOICE_SPEAKER
+/*#ifdef SEPERATED_VOICE_SPEAKER
                         || !strncmp(rxDevice, SND_USE_CASE_DEV_VOC_SPEAKER,
                         (strlen(SND_USE_CASE_DEV_VOC_SPEAKER)+1))
 #endif
-                        )) ||
+*/                        )) ||
                         ((rxDevice == NULL) &&
                         !strncmp(mCurRxUCMDevice, SND_USE_CASE_DEV_SPEAKER,
                         (strlen(SND_USE_CASE_DEV_SPEAKER)+1)))) {
@@ -2085,11 +2163,10 @@ char* ALSADevice::getUCMDevice(uint32_t devices, int input, char *rxDevice)
                 }
 #endif
                 else {
-                    if ((rxDevice != NULL) &&
-                        !strncmp(rxDevice, SND_USE_CASE_DEV_ANC_HANDSET,
-                            strlen(SND_USE_CASE_DEV_ANC_HANDSET) + 1)) {
-                        return strdup(SND_USE_CASE_DEV_AANC_LINE); /* AANC LINE TX */
-                    } else {
+		    			if (mCallMode == AudioSystem::MODE_IN_CALL) {
+	                		return strdup(SND_USE_CASE_DEV_VOC_LINE); /* VOICE BUILTIN-MIC TX */
+		    			}
+			 	else {
                         return strdup(SND_USE_CASE_DEV_LINE); /* BUILTIN-MIC TX */
                     }
                 }
@@ -2110,6 +2187,15 @@ char* ALSADevice::getUCMDevice(uint32_t devices, int input, char *rxDevice)
                 return strdup(SND_USE_CASE_DEV_VOICE_RECOGNITION_HEADSET);
             }
 #endif
+//XIAOMI_START
+            if (mCallMode == AUDIO_MODE_IN_CALL ||
+                mCallMode == AUDIO_MODE_IN_COMMUNICATION)
+            {
+                ALOGV("set HeadsetMic Voice TX");
+                return strdup(SND_USE_CASE_DEV_VOC_HEADSET_MIC);
+            }
+            ALOGV("set HeadsetMic TX device");
+//XIAOMI_END
             return strdup(SND_USE_CASE_DEV_HEADSET); /* HEADSET TX */
 #ifdef QCOM_ANC_HEADSET_ENABLED
         } else if (devices & AudioSystem::DEVICE_IN_ANC_HEADSET) {

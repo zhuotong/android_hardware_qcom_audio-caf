@@ -118,7 +118,7 @@ extern "C" {
 #define SND_USE_CASE_DEV_SPEAKER	"Speaker"
 #define SND_USE_CASE_DEV_LINE		"Line"
 #define SND_USE_CASE_DEV_HEADPHONES	"Headphones"
-#define SND_USE_CASE_DEV_HEADSET	"Headset"
+#define SND_USE_CASE_DEV_HEADSET       "HeadsetMic TX"
 #define SND_USE_CASE_DEV_HANDSET	"Handset"
 #define SND_USE_CASE_DEV_BLUETOOTH	"Bluetooth"
 #define SND_USE_CASE_DEV_EARPIECE	"Earpiece"

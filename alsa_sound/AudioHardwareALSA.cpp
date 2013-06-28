@@ -347,6 +347,14 @@ AudioHardwareALSA::AudioHardwareALSA() :
         if (mAcdbHandle) {
             mUcMgr->acdb_handle = static_cast<void*> (mAcdbHandle);
         }
+#ifdef QCOM_CSDCLIENT_ENABLED
+//XIAOMI_START
+    if (mFusion3Platform) {
+        pthread_create(&CSDInitThread, NULL, CSDInitThreadWrapper, this);
+        //csd_client_init();
+    }
+//XIAOMI_END
+#endif
     }
 //XIAOMI_START
     mLoopbackState = 0;
@@ -2289,6 +2297,12 @@ ERROR:
     return ret;
 }
 
+void *AudioHardwareALSA::CSDInitThreadWrapper(void *me) {
+    ALOGV("AudioHardwareALSA::CSDInitThread+");
+    csd_client_init();
+    ALOGV("AudioHardwareALSA::CSDInitThread-");
+    return NULL;
+}
 
 void *AudioHardwareALSA::AudienceThreadWrapper(void *me) {
     static_cast<AudioHardwareALSA *>(me)->AudienceThreadEntry();
