@@ -67,6 +67,53 @@
     static void (*acdb_send_anc_cal)(int);
 #define PARSE_DEBUG 0
 
+//XIAOMI_START
+#define BT_LIST_MAX 1
+static char BT_List[BT_LIST_MAX][255] = {{"STB-2815"},}; // STB-2815static int BT_ACDB_ID_List[BT_LIST_MAX][2] = {{1201, 1301},}; // STB-2815 {TX, RX}
+static int BT_ACDB_ID_List[BT_LIST_MAX][2] = {{1201, 1301},}; // STB-2815 {TX, RX}
+void Mapping_BT_ACDB_ID(int *RX_DeviceID, int *TX_DeviceID)
+{
+    char btname[255];
+    int value;
+
+    if ((*RX_DeviceID != DEVICE_BT_SCO_RX_ACDB_ID) ||
+         (*TX_DeviceID != DEVICE_BT_SCO_TX_ACDB_ID))
+    {
+        ALOGI("Not BT SCO devices, no need to mapping");
+        return;
+    }
+
+    property_get("audio.bt.name", btname, "none");
+
+    ALOGI("audio.bt.name:%s", btname);
+
+#if 0
+    if (*RX_DeviceID == DEVICE_BT_SCO_RX_ACDB_ID)
+    {
+        int i=0;
+        for (i = 0;i < BT_LIST_MAX; i++) {
+            if (!strcmp(btname, BT_List[i])) {
+                ALOGI("BT Name:%s, using ACDB_ID_RX=%d", btname, BT_ACDB_ID_List[i][1]);
+                *RX_DeviceID =  BT_ACDB_ID_List[i][1];
+            }
+        }
+    }
+
+    if (*TX_DeviceID == DEVICE_BT_SCO_TX_ACDB_ID)
+    {
+        int i=0;
+        for (i = 0;i < BT_LIST_MAX; i++) {
+                if (!strcmp(btname, BT_List[i])) {
+                ALOGI("BT name:%s, using ACDB_ID_TX=%d", btname, BT_ACDB_ID_List[i][0]);
+                *TX_DeviceID =  BT_ACDB_ID_List[i][0];
+            }
+        }
+    }
+#endif
+
+}
+//XIAOMI_END
+
 /**
  * Create an identifier
  * fmt - sprintf like format,
@@ -805,8 +852,15 @@ int use_case_index)
 
                 if ((rx_id != uc_mgr->current_rx_device) ||
                     (tx_id != uc_mgr->current_tx_device)) {
+//XIAOMI_START
+                    int ACDB_RX_id = rx_id;
+                    int ACDB_TX_id = tx_id;
+//XIAOMI_END
                     uc_mgr->current_rx_device = rx_id;
                     uc_mgr->current_tx_device = tx_id;
+//XIAOMI_START
+                    Mapping_BT_ACDB_ID(&ACDB_RX_id, &ACDB_TX_id);
+//XIAOMI_END
                     ALOGD("Voice acdb: rx id %d tx id %d verb:%s modifier:%s",
                           uc_mgr->current_rx_device,
                           uc_mgr->current_tx_device,
